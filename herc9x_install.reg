@@ -1,0 +1,50 @@
+REGEDIT4
+
+; Herc9x Display Driver - Manual Device Registration
+;
+; Creates the device node and class driver entry that Windows needs
+; to recognize the Hercules adapter as a proper display device.
+;
+; After importing: reboot, then Display Properties should show
+; "Hercules Graphics Card (ISA)" with mode switching available.
+
+; === Device Node ===
+; Creates ROOT\DISPLAY\0000 - tells PnP "this display device exists"
+[HKEY_LOCAL_MACHINE\Enum\Root\DISPLAY]
+
+[HKEY_LOCAL_MACHINE\Enum\Root\DISPLAY\0000]
+"Class"="Display"
+"ConfigFlags"=dword:00000000
+"DeviceDesc"="Hercules Graphics Card (ISA)"
+"Driver"="Display\\0001"
+"HardwareID"=""
+"Mfg"="Herc9x Project"
+
+; === Class Driver Entry ===
+; Display\0001 - holds all driver configuration
+; (0000 is the old Intel 82810 ghost - leave it alone)
+[HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Class\Display\0001]
+"Ver"="4.0"
+"DevLoader"="*vdd"
+"DriverDesc"="Hercules Graphics Card (ISA)"
+"ProviderName"="Herc9x Project"
+"InfPath"="herc9x.inf"
+"MatchingDeviceId"=""
+
+[HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Class\Display\0001\DEFAULT]
+"drv"="hercmini.drv"
+"minivdd"="hercmini.vxd"
+"vdd"="*vdd"
+"RefreshRate"="-1"
+"DDC"="0"
+"Mode"="1,720,348"
+
+; === Display Modes ===
+; These are what Display Properties reads to offer resolution choices
+[HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Class\Display\0001\MODES]
+
+[HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Class\Display\0001\MODES\1]
+
+[HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Class\Display\0001\MODES\1\720,348]
+
+[HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\Class\Display\0001\MODES\1\720,522]

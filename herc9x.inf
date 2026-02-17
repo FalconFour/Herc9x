@@ -1,0 +1,69 @@
+;
+; INF file for Hercules Graphics Card Win9x display driver
+; Copyright 2026, Herc9x Project
+;
+; Installation: Control Panel -> Display -> Settings -> Advanced
+;               -> Adapter -> Change -> Have Disk
+;
+; Hercules is a non-PnP ISA card; manual installation only.
+;
+
+[version]
+DriverVer=02/15/2026,1.2026.0.0
+Class=DISPLAY
+signature="$CHICAGO$"
+Provider=%Mfg%
+
+[DestinationDirs]
+DefaultDestDir=11 ; LDID_SYS
+Herc.Copy=11
+
+[SourceDisksNames]
+1="Herc9x Display Driver for Win9x Disk",,0
+
+[SourceDisksFiles]
+hercmini.drv=1
+hercmini.vxd=1
+
+[Manufacturer]
+%Mfg%=Mfg.Herc
+
+[Mfg.Herc]
+%Herc.DeviceDesc%=Herc
+
+[Herc]
+CopyFiles=Herc.Copy
+DelReg=Prev.DelReg
+AddReg=Herc.AddReg
+
+[Herc.Copy]
+hercmini.drv,,,0x00000004
+hercmini.vxd,,,0x00000004
+
+[Prev.DelReg]
+HKR,,Ver
+HKR,,DevLoader
+HKR,,EnumPropPages
+HKR,INFO
+HKR,DEFAULT
+HKR,MODES
+HKR,CURRENT
+
+[Herc.AddReg]
+HKR,,Ver,,4.0
+HKR,,DevLoader,,*vdd
+HKR,DEFAULT,drv,,hercmini.drv
+HKR,DEFAULT,minivdd,,hercmini.vxd
+HKR,DEFAULT,vdd,,"*vdd"
+HKR,DEFAULT,RefreshRate,,-1
+HKR,DEFAULT,DDC,,0
+HKR,DEFAULT,Mode,,"1,720,348"
+; Native Hercules mode: 720x348 monochrome
+HKR,"MODES\1\720,348"
+; Virtual mode: 720x522 -> 720x348 (skip every 3rd line for aspect correction)
+HKR,"MODES\1\720,522"
+
+
+[Strings]
+Mfg="Herc9x Project"
+Herc.DeviceDesc="Hercules Graphics Card (ISA)"

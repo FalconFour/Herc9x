@@ -1,0 +1,26 @@
+# Build artifacts
+*.obj
+*.drv
+*.vxd
+*.sym
+*.res
+*.bin
+*.lib
+*.map
+*.err
+*.exe
+*.bak
+*.backup
+
+# Windows artifacts
+nul
+
+# IDE / tool settings
+.claude/
+
+# Reference docs (not part of project)
+Win-DDK/
+
+# Legacy
+/old/
+boxv9x.img

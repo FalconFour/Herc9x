@@ -1,0 +1,318 @@
+/*****************************************************************************
+
+Copyright (c) 2024 Jaroslav Hensl <emulator@emulace.cz>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+*****************************************************************************/
+
+#include "winhack.h"
+#include "vmm.h"
+#include "vxd.h"
+
+#include "wram.h"
+#include "async.h"
+
+#include "vxd_lib.h"
+#include "3d_accel.h"
+
+#include "code32.h"
+
+#include "vxd_gamma.h"
+
+FBHDA_t *hda = NULL;
+ULONG hda_sem = 0;
+LONG fb_lock_cnt = 0;
+DWORD gamma_quirk = 0;
+
+#include "vxd_strings.h"
+
+BOOL FBHDA_init_hw()
+{
+	//hda = (FBHDA_t *)_PageAllocate(RoundToPages(sizeof(FBHDA_t)), PG_SYS, 0, 0, 0x0, 0x100000, NULL, PAGEFIXED);
+	hda = (FBHDA_t *)&wram->extradata[0];
+
+	if(hda)
+	{
+		memset(hda, 0, sizeof(FBHDA_t));
+
+		hda->cb = sizeof(FBHDA_t);
+		hda->version = API_3DACCEL_VER;
+		hda->flags = 0;
+
+		hda->gamma = 1 << 16;
+
+		hda_sem = Create_Semaphore(1);
+		if(hda_sem == 0)
+		{
+			_PageFree(hda, 0);
+			return FALSE;
+		}
+
+		return TRUE;
+	}
+	return FALSE;
+}
+
+void FBHDA_release_hw()
+{
+	if(hda)
+	{
+		_PageFree(hda, 0);
+	}
+
+	if(hda_sem)
+	{
+		Destroy_Semaphore(hda_sem);
+	}
+}
+
+FBHDA_t *FBHDA_setup()
+{
+	dbg_printf("FBHDA_setup()\n");
+	dbg_printf("sizeof(FBHDA_t) = %ld\n", sizeof(FBHDA_t));
+
+	return hda;
+}
+
+void FBHDA_clean()
+{
+	dbg_printf("FBHDA_clean\n");
+	FBHDA_access_begin(0);
+	memset(hda->vram_pm32, 0, hda->stride);
+	FBHDA_access_end(0);
+	dbg_printf("FBHDA_clean done\n");
+}
+
+static WORD gamma_ramp[3][256];
+static BOOL gamma_ramp_init = FALSE;
+
+static void init_ramp()
+{
+	WORD i = 0;
+	for(i = 0; i < 256; i++)
+	{
+		gamma_ramp[0][i] = (i << 8) | i;
+		gamma_ramp[1][i] = (i << 8) | i;
+		gamma_ramp[2][i] = (i << 8) | i;
+	}
+
+	gamma_ramp_init = TRUE;
+}
+
+BOOL FBHDA_gamma_get(VOID FBPTR ramp, DWORD buffer_size)
+{
+	if(sizeof(gamma_ramp) == buffer_size)
+	{
+		if(!gamma_ramp_init)
+			init_ramp();
+
+		memcpy(ramp, &gamma_ramp[0][0], sizeof(gamma_ramp));
+		return TRUE;
+	}
+	else
+	{
+		dbg_printf("Wrong ramp size: %ld\n", buffer_size);
+	}
+
+	return FALSE;
+}
+
+BOOL FBHDA_gamma_set(VOID FBPTR ramp, DWORD buffer_size)
+{
+	if(sizeof(gamma_ramp) == buffer_size)
+	{
+		WORD *new_ramp = ramp;
+		DWORD gamma = 0;
+		DWORD used_quirk = gamma_quirk;
+		if(used_quirk == 0)
+		{
+			if(new_ramp[0*256 + 128] == 0xFFFF)
+			{
+				used_quirk = 1;
+			}
+			else
+			{
+				used_quirk = 2;
+			}
+		}
+
+		dbg_printf("Gamma quirk: %ld\n", used_quirk);
+
+		if(used_quirk == 1) /* gamma quirk for ID Software games */
+		{
+			gamma = (
+				gamma_table[(new_ramp[0*256 + 64] >> 8)] +
+				gamma_table[(new_ramp[1*256 + 64] >> 8)] +
+				gamma_table[(new_ramp[2*256 + 64] >> 8)]
+			) / 3;
+
+			if(gamma >= 0x3000 && gamma < 0x1000000) /* from ~0.2000 to 256.0000 */
+			{
+				int i = 0;
+				hda->gamma = gamma;
+				hda->gamma_update++;
+
+				/* copy new ramp and duplicate odd values */
+				for(i = 0; i < 128; i ++)
+				{
+					gamma_ramp[0][(i*2) + 0] = new_ramp[0*256 + i];
+					gamma_ramp[0][(i*2) + 1] = new_ramp[0*256 + i];
+					gamma_ramp[1][(i*2) + 0] = new_ramp[1*256 + i];
+					gamma_ramp[1][(i*2) + 1] = new_ramp[1*256 + i];
+					gamma_ramp[2][(i*2) + 0] = new_ramp[2*256 + i];
+					gamma_ramp[2][(i*2) + 1] = new_ramp[2*256 + i];
+				}
+
+				gamma_ramp_init = TRUE;
+
+				dbg_printf("gamma update to 0x%lX\n", hda->gamma);
+
+				return TRUE;
+			}
+		}
+		else /* normal way by MS specification */
+		{
+			gamma = (
+				gamma_table[(new_ramp[0*256 + 128] >> 8)] +
+				gamma_table[(new_ramp[1*256 + 128] >> 8)] +
+				gamma_table[(new_ramp[2*256 + 128] >> 8)]
+			) / 3;
+
+			if(gamma >= 0x3000 && gamma < 0x1000000) /* from ~0.2000 to 256.0000 */
+			{
+				hda->gamma = gamma;
+				hda->gamma_update++;
+
+				/* copy new ramp */
+				memcpy(&gamma_ramp[0][0], ramp, sizeof(gamma_ramp));
+				gamma_ramp_init = TRUE;
+
+				dbg_printf("gamma update to 0x%lX\n", hda->gamma);
+
+				return TRUE;
+			}
+		}
+
+		dbg_printf("Gamma out of reach: 0x%lX\n", gamma);
+		{
+			int i = 0;
+			dbg_printf("RAMP\n");
+			for(i = 0; i < 256; i++)
+			{
+				dbg_printf("%d: R: %X, G: %X, B: %X\n", i,
+					new_ramp[0*256 + i],
+					new_ramp[1*256 + i],
+					new_ramp[2*256 + i]);
+			}
+		}
+	}
+	else
+	{
+		dbg_printf("Wrong ramp size: %ld\n", buffer_size);
+	}
+
+	return FALSE;
+}
+
+#define TEST_PATTERN 0xAAAAAAAAUL
+
+void FBHDA_memtest()
+{
+	if(hda)
+	{
+		DWORD i;
+		DWORD *ptr = hda->vram_pm32;
+		DWORD size4 = hda->vram_size/4;
+
+		for(i = 0; i < size4; i++)
+		{
+			ptr[i] = TEST_PATTERN;
+		}
+
+		for(i = 0; i < size4; i++)
+		{
+			if(ptr[i] != TEST_PATTERN)
+			{
+				dbg_printf("VRAM memory error at %ld, fixing size\n", i*4);
+				hda->vram_size = i*4;
+				break;
+			}
+		}
+
+		if(hda->vram_size >= 1*1024*1024)
+		{
+			size4 = i;
+			/* write black, pattert may confuse some users... */
+			for(i = 0; i < size4; i++)
+			{
+				ptr[i] = 0;
+			}
+		}
+		else
+		{
+			dbg_printf("cannot test vram, assume the Videos BIOS returns the correct information.\n");
+			hda->vram_size = size4*4;
+		}
+
+		dbg_printf("VRAM real size=%ld, vram_heap_in_ram=%d\n", hda->vram_size, FALSE);
+	}
+}
+
+static BOOL fbhda_lock_valid;
+
+BOOL FBHDA_lock()
+{
+	if(!Get_Crit_Section_Status(NULL, NULL))
+	{
+		Wait_Semaphore(hda_sem, 0);
+		fbhda_lock_valid = TRUE;
+		return TRUE;
+	}
+	
+	fbhda_lock_valid = FALSE;
+	return FALSE;
+}
+
+void FBHDA_unlock()
+{
+	if(fbhda_lock_valid)
+	{
+		Signal_Semaphore(hda_sem);
+	}
+}
+
+void FBHDA_refresh(DWORD refresh_rate)
+{
+	DWORD ms = 0;
+
+	if(refresh_rate > 0)
+	{
+		ms = 1000/refresh_rate;
+	}
+	
+	if(ms >= ASYNC_MIN)
+	{
+		async_blit_settime(ms);
+	}
+	else
+	{
+		async_blit_settime(ASYNC_DEFAULT);
+	}
+}
