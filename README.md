@@ -75,13 +75,13 @@ Reverse the SYSTEM.INI changes: remove the `display.drv=hercmini.drv` line, unco
 
 ## Known issues
 
-- **Stability.** The driver is not fully stable. Random crashes and hangs occur both during rapid drawing activity and near-idle states. This is the primary issue still under investigation.
-
-- **INF installation not supported.** The driver must be installed manually via SYSTEM.INI. Normal Add New Hardware / INF-based installation does not work because the driver breaks too many VGA and PnP conventions. Display Properties and Device Manager will not show the driver.
-
 - **DOS box corruption.** Opening a DOS prompt (Command Prompt) shows a "This program cannot run in a window" message. The driver blocks full-screen DOS switching since there is no VGA hardware to switch to. DOS/console applications are not currently usable.
 
 - **Black rectangles.** Black boxes sometimes appear behind removed on-screen objects (ghost artifacts). This appears to be a limitation of the Windows 9x DIB engine itself when operating in 1-bit color mode - the same behavior occurs with Microsoft's own `framebuf.drv` in monochrome mode.
+
+- **BSOD-free!** Hercules Monochrome is incapable of producing the blue color inherent in the Blue Screen of Death, thus it has been unimplemented. **KIDDING!** No, but for real though - switching to/from text-mode to display the BSOD is not working, thus Windows just hangs/crashes in case of a BSOD ("Fatal Exception 0E" etc etc).
+
+- **INF installation not supported.** The driver must be installed manually via SYSTEM.INI. Normal Add New Hardware / INF-based installation does not work because the driver breaks too many VGA and PnP conventions. Display Properties and Device Manager will not show the driver.
 
 - **ISA bus contention.** Heavy drawing activity generates substantial ISA bus traffic from the async blit timer. This can cause stuttering on ISA sound cards sharing the bus.
 
