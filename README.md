@@ -19,8 +19,7 @@ Herc9x strips out all virtual GPU and 3D acceleration support, replacing it with
 - **I/O ports:** 0x3B4/3B5 (6845 CRTC), 0x3B8 (mode control), 0x3BF (config switch)
 - **Bus:** 8-bit ISA
 
-Tested on 86Box (Hercules emulation) and intended for real Hercules-class hardware.
-
+Tested on 86Box (Hercules emulation) and real Hercules-class hardware (single-chip Winbond W86855AF) on Pentium Pro. Not yet tested on an original/OG Hercules card.
 
 ## Installation
 

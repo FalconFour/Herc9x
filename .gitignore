@@ -11,6 +11,7 @@
 *.exe
 *.bak
 *.backup
+*.zip
 
 # Windows artifacts
 nul

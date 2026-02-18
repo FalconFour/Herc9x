@@ -40,7 +40,6 @@ static blit_t *blit = NULL;
 static draw_callback_h draw_callback = NULL;
 volatile DWORD *curtime = NULL;
 
-extern LONG fb_lock_cnt;
 extern FBHDA_t *hda;
 
 #define TIME_MIN_PLAN 4
@@ -73,11 +72,8 @@ void __stdcall async_timeout(DWORD tardiness, DWORD refdata)
 	
 	if(FBHDA_lock())
 	{
-		if(fb_lock_cnt == 0) /* FIXME: check if locking surface is visible surface */
-		{
-			draw_callback(blit);
-			hda->onflip = 0;
-		}
+		draw_callback(blit);
+		hda->onflip = 0;
 		FBHDA_unlock();
 	}
 	

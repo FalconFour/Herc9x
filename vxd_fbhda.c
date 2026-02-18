@@ -37,9 +37,21 @@ THE SOFTWARE.
 #include "vxd_gamma.h"
 
 FBHDA_t *hda = NULL;
-ULONG hda_sem = 0;
-LONG fb_lock_cnt = 0;
 DWORD gamma_quirk = 0;
+
+/* Volatile flag for synchronization between GDI calls and async timer.
+ * Replaces the former semaphore (hda_sem) which was unsafe: the async
+ * timer runs at interrupt time where Wait_Semaphore must not be called,
+ * and the shared static fbhda_lock_valid variable could be overwritten
+ * by the timer, causing the GDI path to skip Signal_Semaphore and leak
+ * the semaphore permanently -- freezing the display pipeline.
+ *
+ * A volatile flag is safe on single-CPU x86 Win9x because:
+ * - GDI calls are serialized by the Win16 lock (never overlap)
+ * - The async timer runs at interrupt priority (preempts GDI, runs to
+ *   completion, then GDI resumes -- so the flag is always consistent)
+ */
+static volatile DWORD draw_lock = 0;
 
 #include "vxd_strings.h"
 
@@ -58,13 +70,6 @@ BOOL FBHDA_init_hw()
 
 		hda->gamma = 1 << 16;
 
-		hda_sem = Create_Semaphore(1);
-		if(hda_sem == 0)
-		{
-			_PageFree(hda, 0);
-			return FALSE;
-		}
-
 		return TRUE;
 	}
 	return FALSE;
@@ -75,11 +80,6 @@ void FBHDA_release_hw()
 	if(hda)
 	{
 		_PageFree(hda, 0);
-	}
-
-	if(hda_sem)
-	{
-		Destroy_Semaphore(hda_sem);
 	}
 }
 
@@ -275,27 +275,16 @@ void FBHDA_memtest()
 	}
 }
 
-static BOOL fbhda_lock_valid;
-
 BOOL FBHDA_lock()
 {
-	if(!Get_Crit_Section_Status(NULL, NULL))
-	{
-		Wait_Semaphore(hda_sem, 0);
-		fbhda_lock_valid = TRUE;
-		return TRUE;
-	}
-	
-	fbhda_lock_valid = FALSE;
-	return FALSE;
+	if(draw_lock) return FALSE;
+	draw_lock = 1;
+	return TRUE;
 }
 
 void FBHDA_unlock()
 {
-	if(fbhda_lock_valid)
-	{
-		Signal_Semaphore(hda_sem);
-	}
+	draw_lock = 0;
 }
 
 void FBHDA_refresh(DWORD refresh_rate)

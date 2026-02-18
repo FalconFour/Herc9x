@@ -24,13 +24,11 @@ For Herc9x Windows 95/98 display driver
 #include "code32.h"
 
 extern FBHDA_t *hda;
-extern LONG fb_lock_cnt;
 extern DWORD ThisVM;
-extern ULONG hda_sem;
 
 static char herc_vxd_name[] = "hercmini.vxd";
 
-/* 6845 CRTC register values for Hercules graphics mode */
+/* 6845 CRTC register values for Hercules graphics mode (720x348) */
 static const BYTE herc_crtc_values[HERC_CRTC_REG_COUNT] = {
 	0x35, 0x2D, 0x2E, 0x07, 0x5B, 0x02, 0x57, 0x57,
 	0x02, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
@@ -470,15 +468,9 @@ void FBHDA_access_end(DWORD flags)
 		}
 	}
 
-	fb_lock_cnt--;
-	if(fb_lock_cnt < 0) fb_lock_cnt = 0;
-
 	if(!timer_set)
 	{
-		if(fb_lock_cnt == 0)
-		{
-			HERC_draw(&wblit);
-		}
+		HERC_draw(&wblit);
 	}
 
 	FBHDA_unlock();

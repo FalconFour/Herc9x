@@ -1,0 +1,32 @@
+Herc9x - Hercules Display Driver for Windows 95/98
+===================================================
+
+Files:
+  hercmini.drv  - 16-bit display driver
+  hercmini.vxd  - 32-bit VxD mini-driver
+
+Prerequisites:
+  A working Windows 95/98 installation, previously set up with VGA.
+  The Hercules card must be installed in the system.
+
+Installation:
+  1. Boot to command prompt (press F8 at startup, select "Command prompt only")
+  2. Copy files to your Windows system directory:
+       COPY hercmini.drv C:\WINDOWS\SYSTEM
+       COPY hercmini.vxd C:\WINDOWS\SYSTEM
+  3. Edit C:\WINDOWS\SYSTEM.INI:
+     In the [boot] section:
+       ;display.drv=pnpdrvr.drv
+       display.drv=hercmini.drv
+     In the [386Enh] section, add:
+       device=hercmini.vxd
+  4. Reboot.
+
+Virtual 720x522 mode (more vertical space):
+  Add to SYSTEM.INI:
+    [display]
+    x_resolution=720
+    y_resolution=522
+    bpp=1
+
+For more information, see: https://github.com/FalconFour/Herc9x
