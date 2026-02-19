@@ -4,6 +4,7 @@ Herc9x - Hercules Display Driver for Windows 95/98
 Files:
   hercmini.drv  - 16-bit display driver
   hercmini.vxd  - 32-bit VxD mini-driver
+  bsplash.exe   - Boot splash utility (optional)
 
 Prerequisites:
   A working Windows 95/98 installation, previously set up with VGA.
@@ -11,7 +12,7 @@ Prerequisites:
 
 Installation:
   1. Boot to command prompt (press F8 at startup, select "Command prompt only")
-  2. Copy files to your Windows system directory:
+  2. Copy the driver files to your Windows system directory:
        COPY hercmini.drv C:\WINDOWS\SYSTEM
        COPY hercmini.vxd C:\WINDOWS\SYSTEM
   3. Edit C:\WINDOWS\SYSTEM.INI:
@@ -28,5 +29,20 @@ Virtual 720x522 mode (more vertical space):
     x_resolution=720
     y_resolution=522
     bpp=1
+
+Boot splash (optional):
+  bsplash.exe displays a 1-bit BMP on the Hercules card during boot.
+  The BMP must be exactly 720x348 pixels, 1-bit monochrome, uncompressed.
+
+  Copy bsplash.exe and your BMP to a directory (e.g. C:\HERC9X\), then
+  add to AUTOEXEC.BAT before the WIN command:
+    @echo off
+    C:\HERC9X\BSPLASH.EXE C:\HERC9X\SPLASH.BMP
+
+  The @echo off prevents DOS from printing commands to the screen,
+  which would corrupt the splash image in graphics mode.
+
+  The image stays on screen until the display driver takes over.
+  To restore text mode after Windows exits: BSPLASH /T
 
 For more information, see: https://github.com/FalconFour/Herc9x

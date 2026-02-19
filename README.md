@@ -88,6 +88,41 @@ Reverse the SYSTEM.INI changes: remove the `display.drv=hercmini.drv` line, unco
 - **No power management.** DPMS (Display Power Management Signaling) is not supported. The Hercules card has no power management capability. Screen savers are recommended instead.
 
 
+## Boot Splash Utility (bsplash)
+
+Included is `bsplash.exe`, a standalone DOS program that displays a 1-bit BMP image on the Hercules card before Windows loads. This gives you a graphical boot splash instead of a text-mode DOS prompt during startup.
+
+### Usage
+
+```
+bsplash <file.bmp>    Display BMP in Hercules graphics mode and exit
+bsplash /t            Restore text mode and exit
+bsplash               Show usage
+```
+
+### Requirements
+
+The BMP must be exactly **720x348 pixels, 1-bit (monochrome), uncompressed**. Both standard (palette[0]=black) and inverted (palette[0]=white) palettes are handled automatically.
+
+To convert an image with ImageMagick:
+```
+magick input.png -resize 720x348! -dither FloydSteinberg -monochrome BMP3:splash.bmp
+```
+
+### Boot integration
+
+Add to your `AUTOEXEC.BAT`, before `WIN`:
+```batch
+@echo off
+C:\HERC9X\BSPLASH.EXE C:\HERC9X\SPLASH.BMP
+WIN
+```
+
+The `@echo off` is important - without it, DOS echoes the commands to the screen as text, which corrupts the graphics framebuffer.
+
+The splash image stays on screen until the Herc9x display driver takes over during Windows startup. After Windows shuts down, call `BSPLASH /T` to restore text mode, or just let the DOS prompt overwrite the graphics buffer naturally.
+
+
 ## Architecture
 
 The driver consists of two components:
@@ -111,7 +146,13 @@ The DIB engine renders into a linear shadow buffer. A periodic timer in the VxD 
 
 ## Building from source
 
-Requires [Open Watcom C/C++ 1.9](http://openwatcom.org/ftp/install/) with Windows 3.1x target support (for Win16 headers).
+Requires [Open Watcom C/C++ 1.9](http://openwatcom.org/ftp/install/).
+
+During Watcom installation, enable at minimum:
+- **16-bit compiler and tools** (for the .drv and bsplash.exe)
+- **32-bit compiler and tools** (for the .vxd)
+- **Windows 3.1 16-bit target** headers/libraries (Win16 API for the .drv)
+- **16-bit DOS target** headers/libraries (for bsplash.exe)
 
 ```
 set WATCOM=C:\WATCOM
@@ -120,9 +161,9 @@ set INCLUDE=%WATCOM%\H;%WATCOM%\H\WIN
 wmake
 ```
 
-This produces `hercmini.drv` and `hercmini.vxd`.
+This produces `hercmini.drv`, `hercmini.vxd`, and `bsplash.exe`.
 
-Debug logging is enabled by default (`DBGPRINT=1` in the makefile). Serial output goes to COM2 (16-bit driver) and COM1 (32-bit VxD). Disable by commenting out the `DBGPRINT` line in the makefile.
+Debug logging is enabled by default (`DBGPRINT=1` in the makefile). Serial output goes to COM2 (16-bit driver) and COM1 (32-bit VxD). For a release build, comment out the `DBGPRINT = 1` line in the makefile and run `wmake clean` before building.
 
 
 ## License

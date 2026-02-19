@@ -37,7 +37,7 @@ CFLAGS32 += -d0
 
 HERCMINI_DRV_RC = wrc -q hercmini.res $@ && .\$(FIXLINK_EXE) -40 $@
 
-all : hercmini.drv hercmini.vxd
+all : hercmini.drv hercmini.vxd bsplash.exe
 
 # Object files: PM16 RING-3
 dbgprint.obj : dbgprint.c .autodepend
@@ -78,6 +78,13 @@ modes_herc.obj : modes_herc.c .autodepend
 
 scrsw_herc.obj : scrsw_herc.c .autodepend
 	$(CC) $(CFLAGS) -zW $(INCS) $(FLAGS) $<
+
+# Boot splash utility (DOS real-mode)
+bsplash.obj : bsplash.c .autodepend
+	$(CC) -q -wx -s -ms -6 -fp6 $<
+
+bsplash.exe : bsplash.obj
+	wlink op quiet system dos name bsplash.exe file bsplash.obj
 
 # Object files: PM32 RING-0
 
@@ -248,4 +255,5 @@ clean : .symbolic
     rm *.res
     rm res/*.obj
     rm res/*.bin
+    -rm -f bsplash.exe
     -rm -f $(FIXLINK_EXE)
