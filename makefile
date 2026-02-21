@@ -91,7 +91,7 @@ setupmod/setupmod.obj : setupmod/setupmod.c .autodepend
 	$(CC) -q -wx -s -ms -6 -fp6 -fo=$@ $<
 
 setupmod.exe : setupmod/setupmod.obj
-	wlink op quiet system dos name setupmod.exe file setupmod/setupmod.obj
+	wlink op quiet op stack=8192 system dos name setupmod.exe file setupmod/setupmod.obj
 
 # Object files: PM32 RING-0
 

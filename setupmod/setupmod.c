@@ -189,7 +189,7 @@ static int run_cmd(const char *cmd)
 static int copy_file(const char *src, const char *dst)
 {
 	FILE *fin, *fout;
-	char buf[4096];
+	static char buf[4096];  /* static: too large for small-model stack */
 	size_t n;
 
 	fin = fopen(src, "rb");
@@ -332,6 +332,15 @@ static int find_windows_cd(void)
 	printf("Searching for Windows installation CD...\n");
 
 	for (drv = 'C'; drv <= 'Z'; drv++) {
+		/* poke CD-ROM drives to force MSCDEX to read the disc's
+		   directory - otherwise file_exists() may fail on a disc
+		   that hasn't been accessed yet */
+		if (is_cdrom(drv - 'A' + 1)) {
+			struct find_t ff;
+			sprintf(probe, "%c:\\*.*", drv);
+			_dos_findfirst(probe, _A_NORMAL | _A_RDONLY, &ff);
+		}
+
 		/* check both CD-ROMs and hard drives - user may have copied
 		   Windows files to a partition */
 		sprintf(probe, "%c:\\WIN95\\MINI.CAB", drv);
@@ -522,17 +531,14 @@ static int copy_setup_files(void)
 			make_path(src, cd_path, ff.name);
 			make_path(dst, dest_dir, ff.name);
 
+			printf("  %s\r", ff.name);
+			fflush(stdout);
+
 			if (copy_file(src, dst) != 0) {
 				fprintf(stderr, "  Warning: failed to copy %s\n",
 				        ff.name);
 			}
 			count++;
-
-			/* progress every 10 files */
-			if (count % 10 == 0) {
-				printf("  %d files copied...\r", count);
-				fflush(stdout);
-			}
 		}
 		rc = _dos_findnext(&ff);
 	}
@@ -555,7 +561,7 @@ static int patch_ini_file(const char *filepath, const char *find,
                           const char *replace)
 {
 	FILE *fp;
-	char lines[64][MAX_LINE_LEN];
+	static char lines[64][MAX_LINE_LEN]; /* static: 32KB, far too large for stack */
 	int nlines = 0;
 	int replaced = 0;
 	int i;
