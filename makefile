@@ -8,8 +8,8 @@ FLAGS = -DDRV_VER_BUILD=$(VER_BUILD)
 FIXLINK_EXE = fixlink.exe
 FIXLINK_CC  = wcl386 -q fixlink\fixlink.c -fe=$(FIXLINK_EXE)
 
-# Set DBGPRINT to add debug printf logging.
-DBGPRINT = 1
+# Debug logging: run "wmake DBGPRINT=1" to enable, or plain "wmake" for release.
+# DBGPRINT = 1
 
 !ifdef DBGPRINT
 FLAGS += -DDBGPRINT

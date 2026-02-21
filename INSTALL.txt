@@ -4,13 +4,23 @@ Herc9x - Hercules Display Driver for Windows 95/98
 Files:
   hercmini.drv  - 16-bit display driver
   hercmini.vxd  - 32-bit VxD mini-driver
+  herc9x.inf    - Driver installation INF
   bsplash.exe   - Boot splash utility (optional)
 
 Prerequisites:
-  A working Windows 95/98 installation, previously set up with VGA.
+  A working Windows 95/98 installation with display output.
   The Hercules card must be installed in the system.
 
-Installation:
+Installation (INF method - recommended):
+  1. Copy hercmini.drv, hercmini.vxd, and herc9x.inf to a floppy or
+     directory accessible from Windows.
+  2. Open Display Properties -> Settings -> Advanced -> Adapter -> Change
+     (Win95: Display Properties -> Settings -> Change Display Type)
+  3. Click "Have Disk..." and browse to the directory with herc9x.inf.
+  4. Select "Hercules Graphics Card (ISA)" and click OK.
+  5. Reboot when prompted.
+
+Installation (manual method - for systems where the INF method fails):
   1. Boot to command prompt (press F8 at startup, select "Command prompt only")
   2. Copy the driver files to your Windows system directory:
        COPY hercmini.drv C:\WINDOWS\SYSTEM

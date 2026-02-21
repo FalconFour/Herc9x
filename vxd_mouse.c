@@ -48,7 +48,7 @@ void *mouse_buffer()
 {
 	if(mouse_buffer_mem == NULL)
 	{
-		mouse_buffer_mem = (void*)_PageAllocate(RoundToPages(MOUSE_BUFFER_SIZE), PG_SYS, 0, 0, PAGE_ALLOC_MIN, PAGE_ALLOC_MAX, NULL, PAGEFIXED|PAGEUSEALIGN);
+		mouse_buffer_mem = (void*)_PageAllocate(RoundToPages(MOUSE_BUFFER_SIZE), PG_SYS, 0, 0, 0, 0, NULL, PAGEFIXED);
 	}
 	
 	return mouse_buffer_mem;

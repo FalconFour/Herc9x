@@ -5,7 +5,10 @@
 ; Installation: Control Panel -> Display -> Settings -> Advanced
 ;               -> Adapter -> Change -> Have Disk
 ;
-; Hercules is a non-PnP ISA card; manual installation only.
+; Hercules is a non-PnP ISA card with no VGA BIOS.
+; Uses DevLoader=*configmg to bypass *vdd's VGA-centric assumptions.
+; The VxD loads as a static VxD via SYSTEM.INI [386Enh] and hooks into
+; *vdd's dispatch table for REGISTER_DISPLAY_DRIVER / I/O trapping.
 ;
 
 [version]
@@ -19,7 +22,7 @@ DefaultDestDir=11 ; LDID_SYS
 Herc.Copy=11
 
 [SourceDisksNames]
-1="Herc9x Display Driver for Win9x Disk",,0
+1="Herc9x Display Driver Disk",,0
 
 [SourceDisksFiles]
 hercmini.drv=1
@@ -28,18 +31,24 @@ hercmini.vxd=1
 [Manufacturer]
 %Mfg%=Mfg.Herc
 
+; The dummy ID "Display_Herc9x" persists in ENUM\Root so the root
+; enumerator recreates the devnode on every boot (DDK PNP.DOC requirement).
 [Mfg.Herc]
-%Herc.DeviceDesc%=Herc
+%Herc.DeviceDesc%=Herc, Display_Herc9x
 
 [Herc]
 CopyFiles=Herc.Copy
 DelReg=Prev.DelReg
 AddReg=Herc.AddReg
+UpdateInis=Herc.UpdateInis
+LogConfig=Herc.LogConfig
 
 [Herc.Copy]
 hercmini.drv,,,0x00000004
 hercmini.vxd,,,0x00000004
 
+; Clean slate: remove all previous driver state so we don't inherit
+; stale values from a VGA, VESA, or previous Herc9x install.
 [Prev.DelReg]
 HKR,,Ver
 HKR,,DevLoader
@@ -51,18 +60,36 @@ HKR,CURRENT
 
 [Herc.AddReg]
 HKR,,Ver,,4.0
-HKR,,DevLoader,,*vdd
+HKR,,DevLoader,,*configmg
+HKR,,DriverDesc,,%Herc.DeviceDesc%
 HKR,DEFAULT,drv,,hercmini.drv
-HKR,DEFAULT,minivdd,,hercmini.vxd
-HKR,DEFAULT,vdd,,"*vdd"
+HKR,DEFAULT,Mode,,"1,720,348"
 HKR,DEFAULT,RefreshRate,,-1
 HKR,DEFAULT,DDC,,0
-HKR,DEFAULT,Mode,,"1,720,348"
+; Chip info for Display Properties -> Adapter tab
+HKR,INFO,ChipType,,"Hercules"
+HKR,INFO,DACType,,"Monochrome"
+HKR,INFO,MemType,,"Standard"
+HKR,INFO,VideoMemory,1,00,00,01,00
 ; Native Hercules mode: 720x348 monochrome
 HKR,"MODES\1\720,348"
-; Virtual mode: 720x522 -> 720x348 (skip every 3rd line for aspect correction)
+; Virtual mode: 720x522 (aspect-corrected, skip every 3rd line)
 HKR,"MODES\1\720,522"
 
+; SYSTEM.INI updates:
+; - [boot] display.drv must be pnpdrvr.drv for PnP chain to work
+; - [386Enh] device=hercmini.vxd loads the VxD as static (since *configmg
+;   does not load VxDs the way *vdd loads mini-VDDs)
+[Herc.UpdateInis]
+system.ini,boot,"display.drv=*","display.drv=pnpdrvr.drv"
+system.ini,386Enh,,"device=hercmini.vxd"
+
+; Resource declaration so Configuration Manager knows what the
+; Hercules card uses and won't assign these to other devices.
+[Herc.LogConfig]
+ConfigPriority=HARDWIRED
+IOConfig=3B0-3BF
+MemConfig=B0000-BFFFF
 
 [Strings]
 Mfg="Herc9x Project"

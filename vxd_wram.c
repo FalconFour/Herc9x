@@ -43,7 +43,7 @@ BOOL wram_init(DWORD bytes)
 
 	if(pages < 16) return FALSE;
 
-	wram = (wram_t*)_PageAllocate(pages, PG_SYS, 0, 0, PAGE_ALLOC_MIN, PAGE_ALLOC_MAX, NULL, PAGEFIXED|PAGEUSEALIGN);
+	wram = (wram_t*)_PageAllocate(pages, PG_SYS, 0, 0, 0, 0, NULL, PAGEFIXED);
 
 	if(wram == NULL)
 	{
