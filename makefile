@@ -37,7 +37,7 @@ CFLAGS32 += -d0
 
 HERCMINI_DRV_RC = wrc -q hercmini.res $@ && .\$(FIXLINK_EXE) -40 $@
 
-all : hercmini.drv hercmini.vxd bsplash.exe
+all : hercmini.drv hercmini.vxd bsplash.exe setupmod.exe
 
 # Object files: PM16 RING-3
 dbgprint.obj : dbgprint.c .autodepend
@@ -85,6 +85,13 @@ bsplash.obj : bsplash.c .autodepend
 
 bsplash.exe : bsplash.obj
 	wlink op quiet system dos name bsplash.exe file bsplash.obj
+
+# Setup modifier utility (DOS real-mode)
+setupmod/setupmod.obj : setupmod/setupmod.c .autodepend
+	$(CC) -q -wx -s -ms -6 -fp6 -fo=$@ $<
+
+setupmod.exe : setupmod/setupmod.obj
+	wlink op quiet system dos name setupmod.exe file setupmod/setupmod.obj
 
 # Object files: PM32 RING-0
 
@@ -256,4 +263,6 @@ clean : .symbolic
     rm res/*.obj
     rm res/*.bin
     -rm -f bsplash.exe
+    -rm -f setupmod.exe
+    -rm -f setupmod/setupmod.obj
     -rm -f $(FIXLINK_EXE)
