@@ -35,7 +35,7 @@ THE SOFTWARE.
 #include "wram.h"
 #include "async.h"
 
-static DWORD screen_time = ASYNC_DEFAULT; // 60 Hz
+static DWORD screen_time = ASYNC_DEFAULT; // 50 Hz (Hercules ~50.9 Hz)
 static blit_t *blit = NULL;
 static draw_callback_h draw_callback = NULL;
 volatile DWORD *curtime = NULL;

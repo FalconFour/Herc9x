@@ -30,7 +30,7 @@ typedef void (*draw_callback_h)(blit_t *blit);
 BOOL async_blit_init(blit_t *blitptr, draw_callback_h cbptr);
 void async_blit_settime(DWORD delay);
 
-#define ASYNC_DEFAULT 16
+#define ASYNC_DEFAULT 20
 #define ASYNC_MIN 4
 
 #endif /* __ASYNC_H__INCLUDED__ */

@@ -163,7 +163,7 @@ wmake
 
 This produces `hercmini.drv`, `hercmini.vxd`, and `bsplash.exe`.
 
-Debug logging is enabled by default (`DBGPRINT=1` in the makefile). Serial output goes to COM2 (16-bit driver) and COM1 (32-bit VxD). For a release build, comment out the `DBGPRINT = 1` line in the makefile and run `wmake clean` before building.
+Debug logging can be enabled by passing `DBGPRINT=1` on the command line: `wmake DBGPRINT=1`. Serial output goes to COM2 (16-bit driver) and COM1 (32-bit VxD). A plain `wmake` produces a release build with no debug output.
 
 
 ## License
