@@ -13,7 +13,7 @@ Your floppy should boot to a DOS prompt with:
 - Access to the CD-ROM drive (e.g. D:)
 - Access to the hard drive (e.g. C:)
 
-**Tip:** Loading XMSMMGR.EXE and SMARTDRV.EXE in your boot floppy's CONFIG.SYS / AUTOEXEC.BAT will dramatically speed up the file copy process (from ~2 minutes down to ~40 seconds).
+**Tip:** Loading XMSMMGR.EXE and SMARTDRV.EXE will dramatically speed up the file copy process (from ~2 minutes down to ~40 seconds). SETUPMOD does this for you automatically once it finds the Windows CD-ROM.
 
 
 ## Step 2: Copy SETUPMOD Files to Floppy
@@ -29,9 +29,9 @@ A:\W9XHERC\HERC9X.INF
 ```
 
 
-## Step 3: Partition and Format the Hard Drive
+## Step 3: Partition and Format the Hard Drive (If Necessary)
 
-Boot from the floppy and prepare your hard drive if you haven't already:
+Boot from the floppy and prepare your hard drive **if you haven't already**:
 
 ```
 FDISK
@@ -114,12 +114,10 @@ See the main [README](README.md#virtual-720x522-mode) for details.
 
 - **"Not enough disk space":** Windows 95 needs at least 100 MB free. SETUPMOD supports a minimal copy mode for tight setups (around 150 MB drives) that skips optional components.
 
-- **Setup hangs or crashes:** If you're using 86Box or other emulators, make sure Hercules emulation is enabled and no VGA card is configured. On real hardware, verify the Hercules card is at the standard I/O and memory addresses (0x3B4-3BF, 0xB0000).
-
-- **Desktop doesn't appear after setup:** Boot to command prompt (press F8 during startup, select "Command prompt only") and verify that `C:\WINDOWS\SYSTEM.INI` contains `display.drv=pnpdrvr.drv` in `[boot]` and `device=hercmini.vxd` in `[386Enh]`. If not, the driver wasn't installed correctly - you may need to add these entries manually (see the main [README](README.md#setup-procedure) for manual installation steps).
+- **Setup hangs or crashes:** Hardware detection in Windows 95 is a very intensive process that often crashes/hangs. As Windows Setup suggests, reboot the system and re-run Setup, choose Safe Recovery when prompted. Other crashes/hangs, after the initial DOS GUI setup on first Windows 95 boot, are harder to debug. If you get "blank screen with flashing cursor" hangs, post your specific hardware setup in an Issue - with 86Box supporting many old boards, it may be possible to recreate in an emulator with debug support.
 
 
 ## Limitations
 
-- **Windows 95 only.** Windows 98 bare-metal installation is not yet supported - the display selection page in Win98 Setup differs from Win95.
+- **Windows 95 only.** Windows 98 bare-metal installation is not yet supported - the hardware detection workflow in Win98 Setup differs significantly from Win95 and more research is required. For Windows 98, you can currently install using a VGA adapter and then swap in the Hercules card after installation, following manual installation steps involving SYSTEM.INI and file copy.
 - **Custom setup required.** You must choose Custom setup to access the display driver selection screen.
