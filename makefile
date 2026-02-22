@@ -251,6 +251,33 @@ export VXD_DDB.1
 <<
 	.\$(FIXLINK_EXE) -vxd32 $@
 
+# Release staging - assembles all release files into release/ directory
+# Run "wmake release" after a successful build, then zip the release/ folder.
+RELDIR = release
+RELBARE = $(RELDIR)\W9XHERC
+
+release : hercmini.drv hercmini.vxd bsplash.exe setupmod.exe .symbolic
+    -rm $(RELDIR)\W9XHERC\*
+    -rmdir $(RELDIR)\W9XHERC
+    -rm $(RELDIR)\*
+    -rmdir $(RELDIR)
+    mkdir $(RELDIR)
+    mkdir $(RELBARE)
+    copy hercmini.drv $(RELDIR)
+    copy hercmini.vxd $(RELDIR)
+    copy herc9x.inf $(RELDIR)
+    copy bsplash.exe $(RELDIR)
+    copy install.txt $(RELDIR)
+    copy hercmini.drv $(RELBARE)
+    copy hercmini.vxd $(RELBARE)
+    copy herc9x.inf $(RELBARE)
+    copy setupmod.exe $(RELBARE)
+    copy setupmod\HERCULES.DRV $(RELBARE)
+    copy setupmod\README.TXT $(RELBARE)
+    @echo.
+    @echo Release staged in $(RELDIR)\
+    @echo Zip the contents of $(RELDIR) into your release archive.
+
 # Cleanup
 clean : .symbolic
     rm *.obj

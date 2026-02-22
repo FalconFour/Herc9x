@@ -25,9 +25,7 @@ Tested on 86Box (Hercules emulation) and real Hercules-class hardware (single-ch
 
 ### Prerequisites
 
-A working Windows 95 or Windows 98 installation. The system must already be set up and bootable - the driver cannot be used during initial Windows setup from CD/floppy because the installer requires VGA.
-
-**Planned:** Bare-metal installation support (setting up Windows directly from Hercules without ever using VGA). Not yet implemented.
+A working Windows 95 or Windows 98 installation. For installing Windows from scratch on a Hercules-only system (no VGA), see the [Bare-Metal Installation Guide](baremetal.md).
 
 ### Setup procedure
 

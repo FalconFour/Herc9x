@@ -13,6 +13,9 @@
 *.backup
 *.zip
 
+# Release staging
+release/
+
 # Windows artifacts
 nul
 
