@@ -494,6 +494,15 @@ void int_10h( unsigned ax );
     "int    10h"        \
     parm [ax];
 
+/* INT 10h AH=06h: Scroll window up. AL=0 clears the entire window.
+ * BH = attribute for blank lines, CX = upper-left (row,col), DX = lower-right.
+ */
+void int_10h_scroll( unsigned ax, unsigned bx, unsigned cx, unsigned dx );
+#pragma aux int_10h_scroll =    \
+    "int    10h"                \
+    parm [ax] [bx] [cx] [dx]   \
+    modify [ax bx cx dx];
+
 /* Disable graphics and go back to a text mode. */
 UINT WINAPI __loadds Disable( LPVOID lpDevice )
 {
@@ -507,7 +516,7 @@ UINT WINAPI __loadds Disable( LPVOID lpDevice )
 
     /* Re-enable I/O trapping before we start setting a standard VGA mode. */
     int_2Fh( START_IO_TRAP );
-    
+
     /* Disable device if needed */
     PhysicalDisable();
 
@@ -516,6 +525,13 @@ UINT WINAPI __loadds Disable( LPVOID lpDevice )
 
     /* Set standard 80x25 text mode using the BIOS. */
     int_10h( 3 );
+
+    /* Clear the text screen. The MDA BIOS mode set may leave gibberish
+     * from the old Hercules graphics VRAM contents.
+     * AH=06 (scroll up), AL=00 (clear), BH=07 (normal white-on-black),
+     * CH/CL=00/00 (top-left), DH/DL=24/79 (bottom-right 80x25).
+     */
+    int_10h_scroll( 0x0600, 0x0700, 0x0000, 0x184F );
 
     /* And unhook INT 2F. */
     UnhookInt2Fh();

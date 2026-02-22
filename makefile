@@ -20,7 +20,7 @@ DBGFILE =
 DBGFILE32 =
 !endif
 
-CFLAGS = -q -wx -s -zu -zls
+CFLAGS = -q -wx -s -zu -zls -DHWBLT
 CFLAGS32 = -q -wx -s -zls -mf -DVXD32 -fpi87 -ei -oeatxhn
 CC = wcc
 CC32 = wcc386
@@ -47,7 +47,7 @@ dibcall.obj : dibcall.c .autodepend
 	$(CC) $(CFLAGS) -zW $(INCS) $(FLAGS) $<
 
 dibthunk.obj : dibthunk.asm
-	wasm -q $(FLAGS) $<
+	wasm -q -DHWBLT $(FLAGS) $<
 
 dddrv.obj : dddrv.c .autodepend
 	$(CC) $(CFLAGS) -zW $(INCS) $(FLAGS) $<

@@ -75,8 +75,6 @@ Reverse the SYSTEM.INI changes: remove the `display.drv=hercmini.drv` line, unco
 
 - **DOS box corruption.** Opening a DOS prompt (Command Prompt) shows a "This program cannot run in a window" message. The driver blocks full-screen DOS switching since there is no VGA hardware to switch to. DOS/console applications are not currently usable.
 
-- **Black rectangles.** Black boxes sometimes appear behind removed on-screen objects (ghost artifacts). This appears to be a limitation of the Windows 9x DIB engine itself when operating in 1-bit color mode - the same behavior occurs with Microsoft's own `framebuf.drv` in monochrome mode.
-
 - **BSOD-free!** Hercules Monochrome is incapable of producing the blue color inherent in the Blue Screen of Death, thus it has been unimplemented. **KIDDING!** No, but for real though - switching to/from text-mode to display the BSOD is not working, thus Windows just hangs/crashes in case of a BSOD ("Fatal Exception 0E" etc etc).
 
 - **INF installation not supported.** The driver must be installed manually via SYSTEM.INI. Normal Add New Hardware / INF-based installation does not work because the driver breaks too many VGA and PnP conventions. Display Properties and Device Manager will not show the driver.
@@ -84,6 +82,12 @@ Reverse the SYSTEM.INI changes: remove the `display.drv=hercmini.drv` line, unco
 - **ISA bus contention.** Heavy drawing activity generates substantial ISA bus traffic from the async blit timer. This can cause stuttering on ISA sound cards sharing the bus.
 
 - **No power management.** DPMS (Display Power Management Signaling) is not supported. The Hercules card has no power management capability. Screen savers are recommended instead.
+
+## Fixed in v0.6
+
+- **Black rectangle artifacts (DIB engine 1bpp bug).** The Windows 9x DIB engine has a long-standing bug in 1-bit color mode: BitBlt applies color conversion (TextColor/bkColor) when copying between the screen and memory bitmaps, even though both surfaces are 1bpp and no conversion is needed. This produced black rectangles when dragging windows, playing Solitaire, opening menus, etc. The same bug exists in Microsoft's own `framebuf.drv`. The driver now intercepts 1bpp SRCCOPY blits with a direct bit copy that bypasses the broken color conversion path, with full coordinate clipping for off-screen regions.
+
+- **Clean text mode restore.** `bsplash /t` now uses INT 10h mode 7 (MDA text mode) for a clean restore - the BIOS handles VRAM clearing, CRTC programming, cursor homing, and BDA updates in one call. The driver's Disable function also clears the screen properly on exit instead of leaving graphics garbage.
 
 
 ## Boot Splash Utility (bsplash)

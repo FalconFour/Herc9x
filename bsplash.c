@@ -43,11 +43,6 @@ static const unsigned char crtc_graph[16] = {
 	0x02, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-/* 6845 CRTC register values - MDA text mode (80x25) */
-static const unsigned char crtc_text[16] = {
-	0x61, 0x50, 0x52, 0x0F, 0x19, 0x06, 0x19, 0x19,
-	0x02, 0x0D, 0x0B, 0x0C, 0x00, 0x00, 0x00, 0x00
-};
 
 /* BMP file structures */
 #pragma pack(push, 1)
@@ -88,17 +83,6 @@ static void program_crtc(const unsigned char *vals)
 		outp(CRTC_INDEX, i);
 		outp(CRTC_DATA, vals[i]);
 	}
-}
-
-/*
- * Restore MDA text mode. Does not clear the text buffer.
- */
-static void set_text_mode(void)
-{
-	outp(CONFIG_SW, 0x00);   /* text mode only */
-	outp(MODE_CTRL, 0x20);  /* text + blink, screen off */
-	program_crtc(crtc_text);
-	outp(MODE_CTRL, 0x28);  /* text + blink, screen on */
 }
 
 /*
@@ -160,7 +144,17 @@ int main(int argc, char *argv[])
 
 	if (argv[1][0] == '/' || argv[1][0] == '-') {
 		if (argv[1][1] == 't' || argv[1][1] == 'T') {
-			set_text_mode();
+			/* Use INT 10h mode 7 (MDA text mode) to restore text display.
+			 * The BIOS handles everything: clears VRAM, programs the 6845
+			 * CRTC registers, homes the cursor, and updates the BDA.
+			 * Hercules is MDA-compatible so this works perfectly.
+			 */
+			{
+				union REGS r;
+				r.h.ah = 0x00;
+				r.h.al = 0x07;  /* Mode 7 = MDA 80x25 text */
+				int86(0x10, &r, &r);
+			}
 			return 0;
 		}
 		fprintf(stderr,
