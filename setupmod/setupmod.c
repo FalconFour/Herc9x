@@ -6,8 +6,10 @@
  * Card (ISA)" during a Custom setup instead of VGA.
  *
  * Expects to run from a mod pack folder (e.g. C:\W95HERC) containing:
- *   SETUPMOD.EXE, MAKECAB.EXE, HERCULES.DRV, HERCMINI.DRV, HERCMINI.VXD,
- *   HERC9X.INF
+ *   SETUPMOD.EXE, HERCULES.DRV, HERCMINI.DRV, HERCMINI.VXD, HERC9X.INF
+ *
+ * Includes a minimal CAB creator that builds uncompressed cabinet files,
+ * since MAKECAB.EXE is Win32-only and cannot run in real-mode DOS.
  *
  * Build: Open Watcom C - wmake setupmod.exe
  */
@@ -28,7 +30,8 @@
 #define MAX_PATH_LEN    128
 #define MAX_LINE_LEN    512
 #define MAX_INF_LINES   3000    /* msdisp95.inf is ~2016 lines */
-#define MAX_CAB_FILES   256     /* max files in one precopy cab */
+#define MAX_CAB_FILES   256     /* max files per cab for our cab creator */
+#define CAB_BLOCK_SIZE  8192    /* CFDATA block size for uncompressed cab */
 #define MIN_DISK_MB     100     /* minimum usable HDD */
 #define LOW_DISK_MB_95  150     /* threshold for minimal Win95 copy */
 
@@ -37,7 +40,6 @@ static const char *required_files[] = {
 	"HERCULES.DRV",
 	"HERCMINI.DRV",
 	"HERCMINI.VXD",
-	"MAKECAB.EXE",
 	"HERC9X.INF",
 	NULL
 };
@@ -63,11 +65,8 @@ static int  minimal_copy;              /* 1 = skip big cabs for Win95 */
 static char *inf_lines[MAX_INF_LINES];
 static int   inf_count;
 
-/* PRECOPY file catalogs */
-static char pc1_files[MAX_CAB_FILES][13];  /* 8.3 filenames from PRECOPY1 */
-static int  pc1_count;
-static char pc2_files[MAX_CAB_FILES][13];  /* 8.3 filenames from PRECOPY2 */
-static int  pc2_count;
+/* CAB creator file catalog */
+static char cab_files[MAX_CAB_FILES][13];  /* 8.3 filenames */
 
 /* ---------- utility functions ---------- */
 
@@ -173,13 +172,18 @@ static int ask_yn(const char *prompt)
 }
 
 /*
- * Run a command, return exit code. Prints command if it fails.
+ * Run an external program directly via spawnl (no COMMAND.COM needed).
+ * exe = full path to executable
+ * args = argument string (what would follow the exe name on command line)
+ * Returns exit code, or -1 on failure.
  */
-static int run_cmd(const char *cmd)
+static int run_exe(const char *exe, const char *args)
 {
-	int rc = system(cmd);
+	int rc;
+	/* spawnlp with P_WAIT: run exe, wait for completion */
+	rc = spawnl(P_WAIT, exe, exe, args, NULL);
 	if (rc != 0)
-		fprintf(stderr, "  Command failed (rc=%d): %s\n", rc, cmd);
+		fprintf(stderr, "  Command failed (rc=%d): %s %s\n", rc, exe, args);
 	return rc;
 }
 
@@ -459,6 +463,35 @@ static int validate_hdd(void)
 	return 1;
 }
 
+/* ---------- Phase 3b: Load SMARTDRV for disk caching ---------- */
+
+/*
+ * Try to load SMARTDRV.EXE from the CD for faster disk I/O.
+ * This is optional - silently skip if not found or if it fails.
+ */
+static void load_smartdrv(void)
+{
+	char cacheapp[MAX_PATH_LEN];
+
+	make_path(cacheapp, cd_path, "XMSMMGR.EXE");
+
+	printf("Loading XMSMMGR memory manager...\n");
+	if (spawnl(P_WAIT, cacheapp, cacheapp, NULL) == 0)
+		printf("  XMSMMGR loaded.\n");
+
+	make_path(cacheapp, cd_path, "SMARTDRV.EXE");
+	if (!file_exists(cacheapp)) {
+		/* try parent dir (e.g. D:\SMARTDRV.EXE) */
+		sprintf(cacheapp, "%c:\\SMARTDRV.EXE", cd_path[0]);
+		if (!file_exists(cacheapp))
+			return;  /* not found, skip silently */
+	}
+
+	printf("Loading SMARTDRV disk cache...\n");
+	if (spawnl(P_WAIT, cacheapp, cacheapp, NULL) == 0)
+		printf("  SMARTDRV loaded.\n");
+}
+
 /* ---------- Phase 4: User confirmation ---------- */
 
 static int confirm_operation(void)
@@ -474,7 +507,7 @@ static int confirm_operation(void)
 	else
 		printf(" (~120 MB)");
 	printf("\n");
-	printf("  3. Modify setup CABs to integrate Hercules driver\n");
+	printf("  3. Rebuild MINI.CAB and PRECOPY CABs with Hercules driver\n");
 	printf("  4. Place driver files for Setup to find\n");
 	printf("\n");
 
@@ -531,7 +564,7 @@ static int copy_setup_files(void)
 			make_path(src, cd_path, ff.name);
 			make_path(dst, dest_dir, ff.name);
 
-			printf("  %s\r", ff.name);
+			printf("  %-12s\r", ff.name);
 			fflush(stdout);
 
 			if (copy_file(src, dst) != 0) {
@@ -561,7 +594,7 @@ static int patch_ini_file(const char *filepath, const char *find,
                           const char *replace)
 {
 	FILE *fp;
-	static char lines[64][MAX_LINE_LEN]; /* static: 32KB, far too large for stack */
+	static char lines[48][256]; /* static: 12KB - INI files in MINI.CAB are small */
 	int nlines = 0;
 	int replaced = 0;
 	int i;
@@ -569,7 +602,7 @@ static int patch_ini_file(const char *filepath, const char *find,
 	fp = fopen(filepath, "r");
 	if (!fp) return -1;
 
-	while (nlines < 64 && fgets(lines[nlines], MAX_LINE_LEN, fp))
+	while (nlines < 48 && fgets(lines[nlines], 256, fp))
 		nlines++;
 	fclose(fp);
 
@@ -614,48 +647,260 @@ static int list_dir_files(const char *dir, char files[][13], int max)
 	return count;
 }
 
+/* ---------- Minimal CAB creator (uncompressed) ---------- */
+
 /*
- * Create a DDF for MAKECAB and run it. Files are listed by path.
- * ddf_path: where to write the DDF
- * cab_name: output CAB filename
- * out_dir: where to put the CAB
- * file_dir: directory containing the source files
- * files: array of filenames
- * nfiles: count
- * compression: "MSZIP" or "LZX"
+ * CAB checksum: XOR-based, processes 4 bytes at a time (little-endian).
+ * Matches the CSUMCompute algorithm from the Microsoft Cabinet spec.
  */
-static int make_single_cab(const char *ddf_path, const char *cab_name,
-                           const char *out_dir, const char *file_dir,
-                           char files[][13], int nfiles,
-                           const char *compression)
+static unsigned long cab_checksum(const unsigned char *data,
+                                  unsigned int len, unsigned long seed)
 {
-	FILE *fp;
-	char cmd[MAX_PATH_LEN * 2];
-	char mcab[MAX_PATH_LEN];
-	int i;
+	unsigned long csum = seed;
+	unsigned int nlong = len / 4;
+	unsigned int rem = len % 4;
+	unsigned int i;
 
-	fp = fopen(ddf_path, "w");
-	if (!fp) return -1;
+	for (i = 0; i < nlong; i++) {
+		unsigned long val;
+		val  = (unsigned long)data[0];
+		val |= (unsigned long)data[1] << 8;
+		val |= (unsigned long)data[2] << 16;
+		val |= (unsigned long)data[3] << 24;
+		csum ^= val;
+		data += 4;
+	}
 
-	fprintf(fp, ".OPTION EXPLICIT\n");
-	fprintf(fp, ".Set Cabinet=on\n");
-	fprintf(fp, ".Set Compress=on\n");
-	fprintf(fp, ".Set CabinetName1=%s\n", cab_name);
-	fprintf(fp, ".Set DiskDirectoryTemplate=%s\n", out_dir);
-	fprintf(fp, ".Set MaxDiskSize=0\n");
-	fprintf(fp, ".Set CompressionType=%s\n", compression);
-	if (stricmp(compression, "LZX") == 0)
-		fprintf(fp, ".Set CompressionMemory=18\n");
+	/* handle remaining 1-3 bytes */
+	if (rem >= 1) {
+		unsigned long val = 0;
+		val |= (unsigned long)data[0];
+		if (rem >= 2) val |= (unsigned long)data[1] << 8;
+		if (rem >= 3) val |= (unsigned long)data[2] << 16;
+		csum ^= val;
+	}
 
-	for (i = 0; i < nfiles; i++)
-		fprintf(fp, "\"%s\\%s\" \"%s\"\n", file_dir, files[i], files[i]);
-
-	fclose(fp);
-
-	make_path(mcab, self_dir, "MAKECAB.EXE");
-	sprintf(cmd, "%s /F %s", mcab, ddf_path);
-	return run_cmd(cmd);
+	return csum;
 }
+
+/*
+ * Write a 16-bit little-endian value to a file.
+ */
+static void cab_write_u2(FILE *fp, unsigned int val)
+{
+	unsigned char b[2];
+	b[0] = (unsigned char)(val & 0xFF);
+	b[1] = (unsigned char)((val >> 8) & 0xFF);
+	fwrite(b, 1, 2, fp);
+}
+
+/*
+ * Write a 32-bit little-endian value to a file.
+ */
+static void cab_write_u4(FILE *fp, unsigned long val)
+{
+	unsigned char b[4];
+	b[0] = (unsigned char)(val & 0xFF);
+	b[1] = (unsigned char)((val >> 8) & 0xFF);
+	b[2] = (unsigned char)((val >> 16) & 0xFF);
+	b[3] = (unsigned char)((val >> 24) & 0xFF);
+	fwrite(b, 1, 4, fp);
+}
+
+/*
+ * Create an uncompressed CAB file from a list of files in a directory.
+ *
+ * cab_path:  output CAB file path
+ * src_dir:   directory containing the source files
+ * filenames: array of 8.3 filenames to include
+ * nfiles:    number of files
+ *
+ * Returns 0 on success, -1 on failure.
+ *
+ * CAB layout (uncompressed, single folder, no spanning):
+ *   CFHEADER (36 bytes)
+ *   CFFOLDER (8 bytes, 1 folder)
+ *   CFFILE[0..nfiles-1] (16 + strlen(name) + 1 each)
+ *   CFDATA blocks (8 byte header + up to 32KB raw data each)
+ */
+static int cab_create(const char *cab_path, const char *src_dir,
+                      char filenames[][13], int nfiles)
+{
+	FILE *out;
+	FILE *fin;
+	char path[MAX_PATH_LEN];
+	static unsigned long file_sizes[MAX_CAB_FILES];
+	unsigned long total_data = 0;
+	unsigned long coffFiles;     /* offset to first CFFILE */
+	unsigned long coffData;      /* offset to first CFDATA */
+	unsigned long cbCabinet;     /* total cabinet size */
+	int cCFData;                 /* number of data blocks */
+	unsigned long folder_offset; /* running offset within folder */
+	int i;
+	static unsigned char block[CAB_BLOCK_SIZE]; /* static: 32KB */
+	unsigned char hdr[8];        /* CFDATA header for checksum */
+	unsigned long csum;
+	size_t n;
+	unsigned long data_written;
+
+	/* first pass: get all file sizes */
+	for (i = 0; i < nfiles; i++) {
+		struct stat st;
+		make_path(path, src_dir, filenames[i]);
+		if (stat(path, &st) != 0) {
+			fprintf(stderr, "  CAB: cannot stat %s\n", filenames[i]);
+			return -1;
+		}
+		file_sizes[i] = (unsigned long)st.st_size;
+		total_data += file_sizes[i];
+	}
+
+	/* calculate data block count */
+	cCFData = (int)((total_data + CAB_BLOCK_SIZE - 1) / CAB_BLOCK_SIZE);
+	if (cCFData == 0) cCFData = 1; /* at least one empty block */
+
+	/* calculate offsets */
+	coffFiles = 36 + 8;  /* CFHEADER(36) + 1 CFFOLDER(8) */
+
+	coffData = coffFiles;
+	for (i = 0; i < nfiles; i++)
+		coffData += 16 + (unsigned long)strlen(filenames[i]) + 1;
+
+	cbCabinet = coffData + (unsigned long)cCFData * 8 + total_data;
+
+	/* open output */
+	out = fopen(cab_path, "wb");
+	if (!out) {
+		fprintf(stderr, "  CAB: cannot create %s\n", cab_path);
+		return -1;
+	}
+
+	/* --- CFHEADER (36 bytes) --- */
+	fwrite("MSCF", 1, 4, out);    /* signature */
+	cab_write_u4(out, 0);          /* reserved1 */
+	cab_write_u4(out, cbCabinet);  /* cbCabinet */
+	cab_write_u4(out, 0);          /* reserved2 */
+	cab_write_u4(out, coffFiles);  /* coffFiles */
+	cab_write_u4(out, 0);          /* reserved3 */
+	fputc(3, out);                 /* versionMinor */
+	fputc(1, out);                 /* versionMajor */
+	cab_write_u2(out, 1);          /* cFolders */
+	cab_write_u2(out, (unsigned int)nfiles); /* cFiles */
+	cab_write_u2(out, 0);          /* flags */
+	cab_write_u2(out, 0);          /* setID */
+	cab_write_u2(out, 0);          /* iCabinet */
+
+	/* --- CFFOLDER (8 bytes) --- */
+	cab_write_u4(out, coffData);   /* coffCabStart */
+	cab_write_u2(out, (unsigned int)cCFData); /* cCFData */
+	cab_write_u2(out, 0);          /* typeCompress = NONE */
+
+	/* --- CFFILE entries --- */
+	folder_offset = 0;
+	for (i = 0; i < nfiles; i++) {
+		cab_write_u4(out, file_sizes[i]);     /* cbFile */
+		cab_write_u4(out, folder_offset);     /* uoffFolderStart */
+		cab_write_u2(out, 0);                 /* iFolder = 0 */
+		cab_write_u2(out, 0);                 /* date (unused) */
+		cab_write_u2(out, 0);                 /* time (unused) */
+		cab_write_u2(out, 0x20);              /* attribs = _A_ARCH */
+		fwrite(filenames[i], 1,
+		       strlen(filenames[i]) + 1, out); /* szName + NUL */
+		folder_offset += file_sizes[i];
+	}
+
+	/* --- CFDATA blocks --- */
+	/* We need to stream all files concatenated, split into 32KB blocks.
+	 * Open each file in sequence and fill blocks. */
+	data_written = 0;
+
+	/* We'll build blocks by reading files sequentially */
+	{
+		int fi = 0;              /* current file index */
+		unsigned long fpos = 0;  /* position within current file */
+		int file_open = 0;
+
+		fin = NULL;
+
+		while (data_written < total_data) {
+			unsigned int block_len = 0;
+
+			/* fill one block */
+			while (block_len < CAB_BLOCK_SIZE && data_written + block_len < total_data) {
+				/* open next file if needed */
+				if (!file_open) {
+					if (fi >= nfiles) break;
+					make_path(path, src_dir, filenames[fi]);
+					fin = fopen(path, "rb");
+					if (!fin) {
+						fprintf(stderr, "  CAB: cannot read %s\n",
+						        filenames[fi]);
+						fclose(out);
+						return -1;
+					}
+					fpos = 0;
+					file_open = 1;
+				}
+
+				/* read from current file */
+				{
+					unsigned int want = CAB_BLOCK_SIZE - block_len;
+					unsigned long avail = file_sizes[fi] - fpos;
+					if (avail > (unsigned long)want)
+						avail = (unsigned long)want;
+
+					n = fread(block + block_len, 1, (unsigned int)avail, fin);
+					if (n == 0) {
+						/* read error - treat file as exhausted */
+						fprintf(stderr, "  CAB: read error on %s\n",
+						        filenames[fi]);
+						fclose(fin);
+						fin = NULL;
+						file_open = 0;
+						fi++;
+						break;
+					}
+					block_len += (unsigned int)n;
+					fpos += (unsigned long)n;
+				}
+
+				/* check if file is exhausted */
+				if (fpos >= file_sizes[fi]) {
+					fclose(fin);
+					fin = NULL;
+					file_open = 0;
+					fi++;
+				}
+			}
+
+			/* compute checksum: first checksum the header bytes,
+			 * then chain with the data checksum */
+			hdr[0] = (unsigned char)(block_len & 0xFF);
+			hdr[1] = (unsigned char)((block_len >> 8) & 0xFF);
+			hdr[2] = (unsigned char)(block_len & 0xFF);
+			hdr[3] = (unsigned char)((block_len >> 8) & 0xFF);
+			csum = cab_checksum(hdr, 4, 0);
+			csum = cab_checksum(block, block_len, csum);
+
+			/* write CFDATA header */
+			cab_write_u4(out, csum);                         /* csum */
+			cab_write_u2(out, (unsigned int)block_len);      /* cbData */
+			cab_write_u2(out, (unsigned int)block_len);      /* cbUncomp */
+
+			/* write raw data */
+			fwrite(block, 1, block_len, out);
+
+			data_written += block_len;
+		}
+
+		if (fin) fclose(fin);
+	}
+
+	fclose(out);
+	return 0;
+}
+
+/* ---------- Phase 6: Modify MINI.CAB ---------- */
 
 static int modify_mini_cab(void)
 {
@@ -663,27 +908,23 @@ static int modify_mini_cab(void)
 	char mini_dir[MAX_PATH_LEN];
 	char cmd[MAX_PATH_LEN * 2];
 	char tmp[MAX_PATH_LEN];
-	char files[64][13];
 	int nfiles;
-	const char *compression;
 
 	printf("\nModifying MINI.CAB...\n");
 
-	/* paths */
 	make_path(mini_cab, cd_path, "MINI.CAB");
 	make_path(mini_dir, self_dir, "MINI");
 
-	/* create temp directory */
 	mkdir(mini_dir);
 
-	/* extract MINI.CAB */
-	sprintf(cmd, "%s /Y /E /L %s %s", extract_exe, mini_dir, mini_cab);
-	if (run_cmd(cmd) != 0) {
+	/* extract MINI.CAB to temp dir */
+	sprintf(cmd, "/Y /E /L %s %s", mini_dir, mini_cab);
+	if (run_exe(extract_exe, cmd) != 0) {
 		fprintf(stderr, "Error: failed to extract MINI.CAB\n");
 		return 0;
 	}
 
-	/* copy HERCULES.DRV into MINI */
+	/* copy HERCULES.DRV into MINI dir */
 	make_path(tmp, self_dir, "HERCULES.DRV");
 	{
 		char dst_tmp[MAX_PATH_LEN];
@@ -694,11 +935,11 @@ static int modify_mini_cab(void)
 		}
 	}
 
-	/* delete VGA.DRV from MINI */
+	/* delete VGA.DRV (replaced by HERCULES.DRV) */
 	make_path(tmp, mini_dir, "VGA.DRV");
 	remove(tmp);
 
-	/* patch SYSTEM.INI */
+	/* patch SYSTEM.INI: vga.drv -> hercules.drv */
 	make_path(tmp, mini_dir, "SYSTEM.INI");
 	if (patch_ini_file(tmp, "display.drv=vga.drv",
 	                   "display.drv=hercules.drv") < 1) {
@@ -717,29 +958,15 @@ static int modify_mini_cab(void)
 		}
 	}
 
-	/* rebuild MINI.CAB */
-	compression = (win_ver == 98) ? "LZX" : "MSZIP";
-
-	/* list files in MINI dir */
-	nfiles = list_dir_files(mini_dir, files, 64);
-
-	make_path(tmp, self_dir, "MINI.DDF");
-	if (make_single_cab(tmp, "MINI.CAB", self_dir, mini_dir,
-	                    files, nfiles, compression) != 0) {
-		fprintf(stderr, "Error: MAKECAB failed for MINI.CAB\n");
+	/* rebuild MINI.CAB (uncompressed) */
+	nfiles = list_dir_files(mini_dir, cab_files, MAX_CAB_FILES);
+	make_path(tmp, dest_dir, "MINI.CAB");
+	if (cab_create(tmp, mini_dir, cab_files, nfiles) != 0) {
+		fprintf(stderr, "Error: failed to create MINI.CAB\n");
 		return 0;
 	}
 
-	printf("  Rebuilt MINI.CAB (%d files, %s compression)\n",
-	       nfiles, compression);
-
-	/* clean up DDF and setup.inf/rpt that MAKECAB creates */
-	remove(tmp);
-	make_path(tmp, self_dir, "setup.inf");
-	remove(tmp);
-	make_path(tmp, self_dir, "setup.rpt");
-	remove(tmp);
-
+	printf("  Rebuilt MINI.CAB (%d files, uncompressed)\n", nfiles);
 	return 1;
 }
 
@@ -1061,158 +1288,75 @@ static int patch_msdisp_inf(const char *inf_path)
 
 /* ---------- Phase 7: Modify PRECOPY CABs ---------- */
 
+/*
+ * Extract PRECOPY1.CAB (with /A to follow chained PRECOPY2.CAB) into
+ * one folder, patch MSDISP.INF, add HERC9X.INF, and repack as a single
+ * unified PRECOPY1.CAB.  Delete PRECOPY2.CAB from dest since all files
+ * are now in PRECOPY1.
+ */
 static int modify_precopy_cabs(void)
 {
-	char pc1_dir[MAX_PATH_LEN], pc2_dir[MAX_PATH_LEN];
+	char pc_dir[MAX_PATH_LEN];
 	char cab_path[MAX_PATH_LEN];
 	char cmd[MAX_PATH_LEN * 2];
-	char tmp[MAX_PATH_LEN];
-	char ddf_path[MAX_PATH_LEN];
-	FILE *fp;
-	int i;
-	const char *compression;
-	char mcab[MAX_PATH_LEN];
 	char inf_path[MAX_PATH_LEN];
+	char tmp[MAX_PATH_LEN];
+	int nfiles;
 
-	printf("\nModifying PRECOPY1.CAB and PRECOPY2.CAB...\n");
+	printf("\nModifying PRECOPY CABs...\n");
 
-	/* create temp dirs in our working directory */
-	make_path(pc1_dir, self_dir, "PC1");
-	make_path(pc2_dir, self_dir, "PC2");
-	mkdir(pc1_dir);
-	mkdir(pc2_dir);
+	/* create temp dir */
+	make_path(pc_dir, self_dir, "PRECOPY");
+	mkdir(pc_dir);
 
-	/* extract PRECOPY1.CAB to PC1\ */
+	/* extract PRECOPY1.CAB with /A to follow chained cabs */
 	make_path(cab_path, cd_path, "PRECOPY1.CAB");
 	if (!file_exists(cab_path)) {
 		fprintf(stderr, "Error: %s not found\n", cab_path);
 		return 0;
 	}
-	sprintf(cmd, "%s /Y /E /L %s %s", extract_exe, pc1_dir, cab_path);
-	printf("  Extracting PRECOPY1.CAB...\n");
-	if (run_cmd(cmd) != 0) {
-		fprintf(stderr, "Error: failed to extract PRECOPY1.CAB\n");
+	sprintf(cmd, "/A /Y /E /L %s %s", pc_dir, cab_path);
+	printf("  Extracting PRECOPY cabs (following chain)...\n");
+	if (run_exe(extract_exe, cmd) != 0) {
+		fprintf(stderr, "Error: failed to extract PRECOPY cabs\n");
 		return 0;
 	}
 
-	/* extract PRECOPY2.CAB to PC2\ */
-	make_path(cab_path, cd_path, "PRECOPY2.CAB");
-	if (!file_exists(cab_path)) {
-		fprintf(stderr, "Error: %s not found\n", cab_path);
-		return 0;
-	}
-	sprintf(cmd, "%s /Y /E /L %s %s", extract_exe, pc2_dir, cab_path);
-	printf("  Extracting PRECOPY2.CAB...\n");
-	if (run_cmd(cmd) != 0) {
-		fprintf(stderr, "Error: failed to extract PRECOPY2.CAB\n");
-		return 0;
-	}
-
-	/* catalog files from each */
-	pc1_count = list_dir_files(pc1_dir, pc1_files, MAX_CAB_FILES);
-	pc2_count = list_dir_files(pc2_dir, pc2_files, MAX_CAB_FILES);
-	printf("  PRECOPY1: %d files, PRECOPY2: %d files\n",
-	       pc1_count, pc2_count);
-
-	/* patch MSDISP.INF (should be in PC2) */
-	make_path(inf_path, pc2_dir, "MSDISP.INF");
+	/* patch MSDISP.INF */
+	make_path(inf_path, pc_dir, "MSDISP.INF");
 	if (!file_exists(inf_path)) {
-		/* might be in PC1 on some versions */
-		make_path(inf_path, pc1_dir, "MSDISP.INF");
-		if (!file_exists(inf_path)) {
-			fprintf(stderr, "Error: MSDISP.INF not found in PRECOPY cabs\n");
-			return 0;
-		}
+		fprintf(stderr, "Error: MSDISP.INF not found in PRECOPY cabs\n");
+		return 0;
 	}
 
 	if (!patch_msdisp_inf(inf_path))
 		return 0;
 
-	/* copy HERC9X.INF into the same dir as MSDISP.INF */
+	/* copy HERC9X.INF into PRECOPY dir */
 	{
-		char herc_inf_src[MAX_PATH_LEN], herc_inf_dst[MAX_PATH_LEN];
-		/* figure out which dir msdisp.inf is in */
-		char *inf_dir;
-		if (stristr(inf_path, "PC2"))
-			inf_dir = pc2_dir;
-		else
-			inf_dir = pc1_dir;
-
-		make_path(herc_inf_src, self_dir, "HERC9X.INF");
-		make_path(herc_inf_dst, inf_dir, "HERC9X.INF");
-		if (copy_file(herc_inf_src, herc_inf_dst) != 0) {
+		char herc_src[MAX_PATH_LEN], herc_dst[MAX_PATH_LEN];
+		make_path(herc_src, self_dir, "HERC9X.INF");
+		make_path(herc_dst, pc_dir, "HERC9X.INF");
+		if (copy_file(herc_src, herc_dst) != 0) {
 			fprintf(stderr, "Error: failed to copy HERC9X.INF\n");
 			return 0;
 		}
-
-		/* add herc9x.inf to the file list for that cab */
-		if (inf_dir == pc2_dir && pc2_count < MAX_CAB_FILES) {
-			strcpy(pc2_files[pc2_count], "HERC9X.INF");
-			pc2_count++;
-		} else if (inf_dir == pc1_dir && pc1_count < MAX_CAB_FILES) {
-			strcpy(pc1_files[pc1_count], "HERC9X.INF");
-			pc1_count++;
-		}
 	}
 
-	/* refresh catalogs in case extraction changed things */
-	/* (we already have them, the only addition is HERC9X.INF above) */
-
-	/* generate DDF that produces precopy1.cab and precopy2.cab */
-	compression = (win_ver == 98) ? "LZX" : "MSZIP";
-	make_path(ddf_path, self_dir, "PRECOPY.DDF");
-	make_path(mcab, self_dir, "MAKECAB.EXE");
-
-	fp = fopen(ddf_path, "w");
-	if (!fp) {
-		fprintf(stderr, "Error: cannot create PRECOPY.DDF\n");
+	/* rebuild as single PRECOPY1.CAB */
+	nfiles = list_dir_files(pc_dir, cab_files, MAX_CAB_FILES);
+	make_path(cab_path, dest_dir, "PRECOPY1.CAB");
+	printf("  Rebuilding PRECOPY1.CAB (%d files)...\n", nfiles);
+	if (cab_create(cab_path, pc_dir, cab_files, nfiles) != 0) {
+		fprintf(stderr, "Error: failed to create PRECOPY1.CAB\n");
 		return 0;
 	}
 
-	fprintf(fp, ".OPTION EXPLICIT\n");
-	fprintf(fp, ".Set Cabinet=on\n");
-	fprintf(fp, ".Set Compress=on\n");
-	fprintf(fp, ".Set CabinetNameTemplate=precopy*.cab\n");
-	fprintf(fp, ".Set DiskDirectoryTemplate=%s\n", self_dir);
-	fprintf(fp, ".Set MaxDiskSize=4608000\n");
-	fprintf(fp, ".Set CompressionType=%s\n", compression);
-	if (stricmp(compression, "LZX") == 0)
-		fprintf(fp, ".Set CompressionMemory=18\n");
-	fprintf(fp, "\n");
-
-	/* PRECOPY1 files from PC1 dir */
-	for (i = 0; i < pc1_count; i++)
-		fprintf(fp, "\"%s\\%s\" \"%s\"\n", pc1_dir, pc1_files[i],
-		        pc1_files[i]);
-
-	/* force new cabinet */
-	fprintf(fp, "\n.New Cabinet\n\n");
-
-	/* PRECOPY2 files from PC2 dir */
-	for (i = 0; i < pc2_count; i++)
-		fprintf(fp, "\"%s\\%s\" \"%s\"\n", pc2_dir, pc2_files[i],
-		        pc2_files[i]);
-
-	fclose(fp);
-
-	/* run MAKECAB */
-	printf("  Rebuilding PRECOPY1.CAB and PRECOPY2.CAB...\n");
-	sprintf(cmd, "%s /F %s", mcab, ddf_path);
-	if (run_cmd(cmd) != 0) {
-		fprintf(stderr, "Error: MAKECAB failed for PRECOPY cabs\n");
-		return 0;
-	}
-
-	printf("  Rebuilt PRECOPY1.CAB (%d files) and PRECOPY2.CAB (%d files)\n",
-	       pc1_count, pc2_count);
-
-	/* clean up DDF and MAKECAB artifacts */
-	remove(ddf_path);
-	make_path(tmp, self_dir, "setup.inf");
-	remove(tmp);
-	make_path(tmp, self_dir, "setup.rpt");
+	/* delete PRECOPY2.CAB from dest (all files now in PRECOPY1) */
+	make_path(tmp, dest_dir, "PRECOPY2.CAB");
 	remove(tmp);
 
+	printf("  Rebuilt unified PRECOPY1.CAB (uncompressed)\n");
 	return 1;
 }
 
@@ -1223,31 +1367,11 @@ static int deploy_files(void)
 	char src[MAX_PATH_LEN], dst[MAX_PATH_LEN];
 	int ok = 1;
 
-	printf("\nDeploying modified files to %s...\n", dest_dir);
+	printf("\nDeploying driver files to %s...\n", dest_dir);
 
-	/* copy rebuilt CABs */
-	make_path(src, self_dir, "MINI.CAB");
-	make_path(dst, dest_dir, "MINI.CAB");
-	if (copy_file(src, dst) != 0) {
-		fprintf(stderr, "  Error: failed to copy MINI.CAB\n");
-		ok = 0;
-	}
+	/* CABs were written directly to dest_dir by cab_create().
+	 * Just need to copy loose driver files for Setup's CopyFiles. */
 
-	make_path(src, self_dir, "PRECOPY1.CAB");
-	make_path(dst, dest_dir, "PRECOPY1.CAB");
-	if (copy_file(src, dst) != 0) {
-		fprintf(stderr, "  Error: failed to copy PRECOPY1.CAB\n");
-		ok = 0;
-	}
-
-	make_path(src, self_dir, "PRECOPY2.CAB");
-	make_path(dst, dest_dir, "PRECOPY2.CAB");
-	if (copy_file(src, dst) != 0) {
-		fprintf(stderr, "  Error: failed to copy PRECOPY2.CAB\n");
-		ok = 0;
-	}
-
-	/* copy driver files (Setup needs them loose for CopyFiles) */
 	make_path(src, self_dir, "HERCMINI.DRV");
 	make_path(dst, dest_dir, "HERCMINI.DRV");
 	if (copy_file(src, dst) != 0) {
@@ -1263,7 +1387,7 @@ static int deploy_files(void)
 	}
 
 	if (ok)
-		printf("  All files deployed.\n");
+		printf("  Driver files deployed.\n");
 
 	return ok;
 }
@@ -1299,19 +1423,8 @@ static void cleanup_and_instruct(void)
 	make_path(tmp, self_dir, "MINI");
 	rmdir_files(tmp);
 
-	make_path(tmp, self_dir, "PC1");
+	make_path(tmp, self_dir, "PRECOPY");
 	rmdir_files(tmp);
-
-	make_path(tmp, self_dir, "PC2");
-	rmdir_files(tmp);
-
-	/* remove rebuilt CABs from our directory (already copied to dest) */
-	make_path(tmp, self_dir, "MINI.CAB");
-	remove(tmp);
-	make_path(tmp, self_dir, "PRECOPY1.CAB");
-	remove(tmp);
-	make_path(tmp, self_dir, "PRECOPY2.CAB");
-	remove(tmp);
 
 	/* final instructions */
 	printf("\n");
@@ -1352,8 +1465,17 @@ int main(void)
 	if (!find_windows_cd())
 		return 1;
 
+	if (win_ver == 98) {
+		fprintf(stderr,
+			"Windows 98 support is not yet available.\n"
+			"Check https://github.com/FalconFour/Herc9x for updates.\n");
+		return 1;
+	}
+
 	if (!validate_hdd())
 		return 1;
+
+	load_smartdrv();
 
 	if (!confirm_operation())
 		return 0;

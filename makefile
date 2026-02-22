@@ -88,7 +88,7 @@ bsplash.exe : bsplash.obj
 
 # Setup modifier utility (DOS real-mode)
 setupmod/setupmod.obj : setupmod/setupmod.c .autodepend
-	$(CC) -q -wx -s -ms -6 -fp6 -fo=$@ $<
+	$(CC) -q -wx -s -mc -6 -fp6 -fo=$@ $<
 
 setupmod.exe : setupmod/setupmod.obj
 	wlink op quiet op stack=8192 system dos name setupmod.exe file setupmod/setupmod.obj
